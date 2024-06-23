@@ -1,200 +1,492 @@
 <script>
-    import { createEventDispatcher } from 'svelte';
-    const dispatch = createEventDispatcher();
-    export let columns;
-    export let rows;
-    export let sortBy = "";
-    export let sortOrder = 1;
-    export let iconAsc = '▲';
-    export let iconDesc = '▼';
-    export let classNameTable = '';
-    export let classNameThead = '';
-    export let classNameTbody = '';
-    export let classNameSelect = '';
-    export let classNameRow = '';
-    export let classNameCell = '';
-    export let rowKeep = true;
+  import { createEventDispatcher } from "svelte";
 
-    let sortFunction = () => "";
-    let showFilterHeader = columns.some(c => c.filterOptions !== undefined);
-    let filterValues = {};
-    let searchValues = {};
-    let filterSettings = {};
-    let columnByKey = {};
-    let rowbdcolor=[];
-    let temprows;
+  /** @type {TableColumns<any>} */
+  export let columns;
+
+  /** @type {any[]} */
+  export let rows;
+
+  /** @type { any[] | undefined } rows that pass filter (exposed internal) */
+  export let c_rows = undefined;
+
+  export let sortOrders = [1, -1];
+
+  // READ AND WRITE
+
+  /** @type {string} */
+  export let sortBy = "";
+
+  /** @type {number} */
+  export let sortOrder = sortOrders?.[0] || 1;
+
+  /** @type {Object} */
+  export let filterSelections = {};
+
+  // expand
+  /** @type {(string | number)[]} */
+  export let expanded = [];
+
+  // selection
+  /** @type {(string | number)[]} */
+  export let selected = [];
+
+  // READ ONLY
+
+  // TODO: remove in some future release in favour of rowKey
+  /** @type {string | null} */
+  export let expandRowKey = null;
+
+  /** @type {string | null} */
+  export let rowKey = expandRowKey;
+
+  /** @type {Boolean} */
+  export let expandSingle = false;
+
+  /** @type {Boolean} */
+  export let selectSingle = false;
+
+  /** @type {Boolean} */
+  export let selectOnClick = false;
+
+  /** @type {string} */
+  export let iconAsc = "▲";
+
+  /** @type {string} */
+  export let iconDesc = "▼";
+
+  /** @type {string} */
+  export let iconSortable = "";
+
+  /** @type {string} */
+  export let iconExpand = "▼";
+
+  /** @type {string} */
+  export let iconExpanded = "▲";
+
+  /** @type {boolean} */
+  export let showExpandIcon = false;
+
+  /** @type {string} */
+  export let classNameTable = "";
+
+  /** @type {string} */
+  export let classNameThead = "";
+
+  /** @type {string} */
+  export let classNameTbody = "";
+
+  /** @type {string} */
+  export let classNameSelect = "";
+
+  /** @type {string} */
+  export let classNameInput = "";
+
+  /** @type {RowClassName<any>} */
+  export let classNameRow = null;
+
+  /** @type {string} */
+  export let classNameCell = "";
+
+  /** @type {string | null} class added to the selected row*/
+  export let classNameRowSelected = null;
+
+  /** @type {string | null} class added to the expanded row*/
+  export let classNameRowExpanded = null;
+
+  /** @type {string} class added to the expanded row*/
+  export let classNameExpandedContent = "";
+
+  /** @type {string} class added to the cell that allows expanding/closing */
+  export let classNameCellExpand = "";
+
+  /*** added by pei ****/
+  export let rowKeep = true;
+  export let resetKeep = false;
+  export let fillrow=[];
+  export let fillcolor='floralwhite';
+
+  const dispatch = createEventDispatcher();
+
+  /** @type {function}*/
+  let sortFunction = () => "";
+
+  // Validation
+  if (!Array.isArray(expanded)) throw "'expanded' needs to be an array";
+  if (!Array.isArray(selected)) throw "'selection' needs to be an array";
+  if (expandRowKey !== null) {
+    console.warn("'expandRowKey' is deprecated in favour of 'rowKey'");
+  }
+  if (classNameRowSelected && !rowKey) {
+    console.error("'rowKey' is needed to use 'classNameRowSelected'");
+  }
+
+  let showFilterHeader = columns.some(c => {
+    // check if there are any filter or search headers
+    return (
+      !c.hideFilterHeader &&
+      (c.filterOptions !== undefined || c.searchValue !== undefined)
+    );
+  });
+  let filterValues = {};
+
+  /** @type {Record<string | number | symbol, TableColumn<any>>}*/
+  let columnByKey;
+
+  /** by pei ***/
+  let rowbdcolor=[];
+  let temprows;
+  let rowbkcolor=[];
+
+
+  $: {
+    columnByKey = {};
     columns.forEach(col => {
-        columnByKey[col.key] = col;
+      columnByKey[col.key] = col;
     });
-    $: c_rows = rows
-            .filter(r => {
-                        return Object.keys(filterSettings).every(f => {
-                            // check search (text input) matches
-                            let resSearch =
-                                    filterSettings[f] === "" ||
-                                    (columnByKey[f].searchValue &&
-                                            (columnByKey[f].searchValue(r) + "")
-                                                    .toLocaleLowerCase()
-                                                    .indexOf((filterSettings[f] + "").toLocaleLowerCase()) >= 0);
+  }
 
-                            // check filter (dropdown) matchas
-                            let resFilter =
-                                    resSearch ||
-                                    filterSettings[f] === undefined ||
-                                    // default to value() if filterValue() not provided in col
-                                    filterSettings[f] ===
-                                    (typeof columnByKey[f].filterValue === "function"
-                                            ? columnByKey[f].filterValue(r)
-                                            : columnByKey[f].value(r));
-                            return resFilter;
-                        })
-                    }
-            )
-            .map(r => (Object.assign({}, r, {$sortOn: sortFunction(r)} ) ) )
-            .sort((a, b) => {
-                if (a.$sortOn > b.$sortOn) return sortOrder;
-                else if (a.$sortOn < b.$sortOn) return -sortOrder;
-                return 0;
-            });
-    const asStringArray = (v) => [].concat(v).filter(v => typeof v === 'string' && v !== "").join(' ');
-    const calculateFilterValues = () => {
-        filterValues = {};
-        columns.forEach(c => {
-            if (typeof c.filterOptions === "function") {
-                filterValues[c.key] = c.filterOptions(rows);
-            } else if (Array.isArray(c.filterOptions)) {
-                // if array of strings is provided, use it for name and value
-                filterValues[c.key] = c.filterOptions.map(val => ({name:val, value:val}));
-            }
-        });
-    };
-    $: {
-        let col = columnByKey[sortBy];
-        if (col !== undefined && col.sortable === true && typeof col.value === "function") {
-            sortFunction = r => col.value(r);
+  $: colspan = (showExpandIcon ? 1 : 0) + columns.length;
+
+  $: c_rows = rows
+    .filter(r => {
+      // get search and filter results/matches
+      return Object.keys(filterSelections).every(f => {
+        /**
+         * @type {boolean}
+         * Determine whether search term matches a row.
+         * If the searchValue function has ONE parameter it expects to return a string value
+         *     which will be compared to the search string. This should be depricated in a
+         *     future release, since it's very limiting to search functionality.
+         * If the searchValue function has TWO parameters, pass the row and the search term
+         *     and expect a boolean response.
+         */
+        let resSearch = null;
+
+        if (columnByKey[f] === undefined) {
+          /**
+           * return `true` if the column doesn't exist, any value passed to it is ignored
+           * it effectively ignores the column if it's not defined
+           * this can happen if the column are changing at run-time
+           */
+          return true;
+        } else if (!columnByKey[f]?.searchValue) {
+          // if no searchValue is defined, set to false for filter (resFilter) to handle it
+          resSearch = false;
+        } else if (filterSelections[f] === "") {
+          // if searchValue exists and the search string is empty, return true immediately
+          return true;
+        } else if (columnByKey[f].searchValue.length === 1) {
+          // does search comparison using string result
+          // TODO: DEPRECATE
+          resSearch =
+            (columnByKey[f].searchValue(r) + "")
+              .toLocaleLowerCase()
+              .indexOf((filterSelections[f] + "").toLocaleLowerCase()) >= 0;
+        } else if (columnByKey[f].searchValue.length === 2) {
+          // search using function (with 2 parameters)
+          resSearch = !!columnByKey[f].searchValue(r, filterSelections[f] + "");
         }
-    };
-    $: {
-        // if filters are enabled, watch rows and columns
-        if (showFilterHeader && columns && rows) {
-            calculateFilterValues();
-        }
-        if (rows[0] !== undefined){
-            if (temprows!==rows) {
+
+        // check filter (dropdown) matches
+        let resFilter =
+          resSearch ||
+          filterSelections[f] === undefined ||
+          // default to value() if filterValue() not provided in col
+          filterSelections[f] ===
+            (typeof columnByKey[f].filterValue === "function"
+              ? columnByKey[f].filterValue(r)
+              : columnByKey[f].value(r));
+
+        return resFilter;
+      });
+    })
+    .map(r =>
+      Object.assign({}, r, {
+        // internal row property for sort order
+        $sortOn: sortFunction(r),
+        // internal row property for expanded rows
+        $expanded: rowKey !== null && expanded.indexOf(r[rowKey]) >= 0,
+        $selected: rowKey !== null && selected.indexOf(r[rowKey]) >= 0,
+      })
+    )
+    .sort((a, b) => {
+      if (!sortBy) return 0;
+      else if (a.$sortOn > b.$sortOn) return sortOrder;
+      else if (a.$sortOn < b.$sortOn) return -sortOrder;
+      return 0;
+    });
+
+  const asStringArray = v =>
+    []
+      .concat(v)
+      .filter(v => v !== null && typeof v === "string" && v !== "")
+      .join(" ");
+
+  const calculateFilterValues = () => {
+    filterValues = {};
+    columns.forEach(c => {
+      if (typeof c.filterOptions === "function") {
+        filterValues[c.key] = c.filterOptions(rows);
+      } else if (Array.isArray(c.filterOptions)) {
+        // if array of strings is provided, use it for name and value
+        filterValues[c.key] = c.filterOptions.map(val => ({
+          name: val,
+          value: val,
+        }));
+      }
+    });
+  };
+
+  $: {
+    let col = columnByKey[sortBy];
+    if (
+      col !== undefined &&
+      col.sortable === true &&
+      typeof col.value === "function"
+    ) {
+      sortFunction = r => col.value(r);
+    }
+  }
+
+  $: {
+    // if filters are enabled, watch rows and columns
+    if (showFilterHeader && columns && rows) {
+      calculateFilterValues();
+    }
+
+    if (rows[0] !== undefined){
+            if (temprows!==rows  | resetKeep )  {
                 rowbdcolor.forEach((value, index) => {
                     rowbdcolor[index] = "";
                 });
+                resetKeep=false;
             }
             temprows=rows;
         }
-    };
-    const updateSortOrder = (colKey) => {
-        if (colKey === sortBy) {
-            sortOrder = sortOrder === 1 ? -1 : 1
-        } else {
-            sortOrder = 1;
+        if (fillrow.length!==0){
+            rowbkcolor.fill("");
+            fillrow.forEach( item => {
+                rowbkcolor[item]=fillcolor;
+                // rowbdcolor[item]="solid blue"
+            })
+        }else{
+            rowbkcolor.forEach((value, index) => {
+                    rowbkcolor[index] = "";
+                });
         }
-    }
+  }
 
-    const handleClickCol = (event, col) => {
-        updateSortOrder(col.key)
-        sortBy = col.key;
-        dispatch('clickCol', {event, col, key:col.key} );
-    }
+  const updateSortOrder = colKey => {
+    return colKey === sortBy
+      ? sortOrders[
+          (sortOrders.findIndex(o => o === sortOrder) + 1) % sortOrders.length
+        ]
+      : sortOrders[0];
+  };
 
-    const handleClickRow = (event, row, No) => {
-        dispatch('clickRow', {event, row} );
-        if (rowKeep=== true) {
+  const handleClickCol = (event, col) => {
+    if (col.sortable) {
+      sortOrder = updateSortOrder(col.key);
+      sortBy = sortOrder ? col.key : undefined;
+    }
+    dispatch("clickCol", { event, col, key: col.key });
+  };
+
+  const handleClickRow = (event, row, No) => {
+    if (selectOnClick) {
+      if (selectSingle) {
+        // replace selection is default behaviour
+        if (selected.includes(row[rowKey])) {
+          selected = [];
+        } else {
+          selected = [row[rowKey]];
+        }
+      } else {
+        if (selected.includes(row[rowKey])) {
+          selected = selected.filter(r => r != row[rowKey]);
+        } else {
+          selected = [...selected, row[rowKey]].sort();
+        }
+      }
+    }
+    if (rowKeep=== true) {
             rowbdcolor.forEach((value, index) => {
                 rowbdcolor[index] = "";
             });
             // rowbdcolor[No] = "PapayaWhip";
-            rowbdcolor[No] = "solid red";
-        }
-    }
+            rowbdcolor[No] = "solid red ";
+     }
+    dispatch("clickRow", { event, row });
+  };
 
-    const handleClickCell = (event, row, key) => {
-        dispatch('clickCell', {event, row, key} );
+  const handleClickExpand = (event, row) => {
+    row.$expanded = !row.$expanded;
+    const keyVal = row[rowKey];
+    if (expandSingle && row.$expanded) {
+      expanded = [keyVal];
+    } else if (expandSingle) {
+      expanded = [];
+    } else if (!row.$expanded) {
+      expanded = expanded.filter(r => r != keyVal);
+    } else {
+      expanded = [...expanded, keyVal];
     }
+    dispatch("clickExpand", { event, row });
+  };
+
+  const handleClickCell = (event, row, key) => {
+    dispatch("clickCell", { event, row, key });
+  };
 </script>
 
+<table class={asStringArray(classNameTable)}>
+  <thead class={asStringArray(classNameThead)}>
+    {#if showFilterHeader}
+      <tr>
+        {#each columns as col}
+          <th class={asStringArray([col.headerFilterClass])}>
+            {#if !col.hideFilterHeader && col.searchValue !== undefined}
+              <input
+                bind:value={filterSelections[col.key]}
+                class={asStringArray(classNameInput)}
+                placeholder={col.filterPlaceholder}
+              />
+            {:else if !col.hideFilterHeader && filterValues[col.key] !== undefined}
+              <select
+                bind:value={filterSelections[col.key]}
+                class={asStringArray(classNameSelect)}
+              >
+                <option value={undefined}>{col.filterPlaceholder || ""}</option>
+                {#each filterValues[col.key] as option}
+                  <option value={option.value}>{option.name}</option>
+                {/each}
+              </select>
+            {/if}
+          </th>
+        {/each}
+        {#if showExpandIcon}
+          <th />
+        {/if}
+      </tr>
+    {/if}
+    <slot name="header" {sortOrder} {sortBy}>
+      <tr>
+        {#each columns as col}
+          <th
+            on:click={e => handleClickCol(e, col)}
+            on:keypress={e => e.key === "Enter" && handleClickCol(e, col)}
+            class={asStringArray([
+              col.sortable ? "isSortable" : "",
+              col.headerClass,
+            ])}
+            tabindex="0"
+          >
+            {col.title}
+            {#if sortBy === col.key}
+              {@html sortOrder === 1 ? iconAsc : iconDesc}
+            {:else if col.sortable}
+              {@html iconSortable}
+            {/if}
+          </th>
+        {/each}
+        {#if showExpandIcon}
+          <th />
+        {/if}
+      </tr>
+    </slot>
+  </thead>
+
+  <tbody class={asStringArray(classNameTbody)}>
+    {#each c_rows as row, n}
+      <slot name="row" {row} {n}>
+        <tr style="border: {rowbdcolor[n]}; background: {rowbkcolor[n]}"
+          on:click={e => handleClickRow(e, row,n)}
+          on:keypress={e => e.key === "Enter" && handleClickRow(e, row,n)}
+          class={asStringArray([
+            typeof classNameRow === "string" ? classNameRow : null,
+            typeof classNameRow === "function" ? classNameRow(row, n) : null,
+            row.$expanded && classNameRowExpanded,
+            row.$selected && classNameRowSelected,
+          ])}
+          tabIndex={selectOnClick ? "0" : null}
+        >
+          {#each columns as col, colIndex}
+            <td
+              on:click={e => handleClickCell(e, row, col.key)}
+              on:keypress={e =>
+                e.key === "Enter" && handleClickCell(e, row, col.key)}
+              class={asStringArray([
+                typeof col.class === "string" ? col.class : null,
+                typeof col.class === "function"
+                  ? col.class(row, n, colIndex)
+                  : null,
+                classNameCell,
+              ])}
+            >
+              {#if col.renderComponent}
+                <svelte:component
+                  this={col.renderComponent.component || col.renderComponent}
+                  {...col.renderComponent.props || {}}
+                  {row}
+                  {col}
+                />
+              {:else if col.parseHTML}
+                {@html col.renderValue
+                  ? col.renderValue(row, n, colIndex)
+                  : col.value(row, n, colIndex)}
+              {:else}
+                {col.renderValue
+                  ? col.renderValue(row, n, colIndex)
+                  : col.value(row, n, colIndex)}
+              {/if}
+            </td>
+          {/each}
+          {#if showExpandIcon}
+            <td class={asStringArray(classNameCellExpand)}>
+              <span
+                class="isClickable"
+                on:click={e => handleClickExpand(e, row)}
+                on:keypress={e =>
+                  e.key === "Enter" && handleClickExpand(e, row)}
+                tabindex="0"
+                role="button"
+              >
+                {@html row.$expanded ? iconExpand : iconExpanded}
+              </span>
+            </td>
+          {/if}
+        </tr>
+        {#if row.$expanded}
+          <tr class={asStringArray(classNameExpandedContent)}
+            ><td {colspan}>
+              <slot name="expanded" {row} {n} />
+            </td></tr
+          >
+        {/if}
+      </slot>
+    {/each}
+  </tbody>
+</table>
+
 <style>
-    table {
-        width: 100%;
-        font-size: inherit;
-    }
-    .isSortable {
-        cursor: pointer;
-    }
-    tr th select {
-        width: 100%;
-    }
-    tbody tr:hover  {
+  table {
+    width: 100%;
+  }
+  .isSortable {
+    cursor: pointer;
+  }
+
+  .isClickable {
+    cursor: pointer;
+  }
+
+  tr th select {
+    width: 100%;
+  }
+
+  tbody tr:hover  {
         background-color:lightgoldenrodyellow;
         color:black;
     }
-
 </style>
-
-<table class={asStringArray(classNameTable)}>
-    <thead class={asStringArray(classNameThead)}>
-    {#if showFilterHeader}
-        <tr>
-            {#each columns as col}
-                <th>
-                    {#if col.searchValue !== undefined}
-                        <input bind:value={filterSettings[col.key]}>
-                    {:else if filterValues[col.key] !== undefined}
-                        <select bind:value={filterSettings[col.key]} class={asStringArray(classNameSelect)}>
-                            <option value={undefined}></option>
-                            {#each filterValues[col.key] as option}
-                                <option value={option.value}>{option.name}</option>
-                            {/each}
-                        </select>
-                    {/if}
-                </th>
-            {/each}
-        </tr>
-    {/if}
-    <slot name="header" sortOrder={sortOrder} sortBy={sortBy}>
-        <tr>
-            {#each columns as col}
-                {#if col.sortable}
-                    <th
-                            on:click={(e) => handleClickCol(e, col)}
-                            class={asStringArray(['isSortable', col.headerClass])}
-                    >
-                        {col.title}
-                        {#if sortBy === col.key}
-                            { sortOrder === 1 ? iconAsc : iconDesc}
-                        {/if}
-                    </th>
-                {:else}
-                    <th
-                            class={col.headerClass}
-                    >
-                        {col.title}
-                        {#if sortBy === col.key}
-                            { sortOrder === 1 ? iconAsc : iconDesc}
-                        {/if}
-                    </th>
-                {/if}
-            {/each}
-        </tr>
-    </slot>
-    </thead>
-    <tbody class={asStringArray(classNameTbody)}>
-    {#each c_rows as row, n}
-        <slot name="row" row={row} n={n} >
-            <tr style="border: {rowbdcolor[n]} " on:click={(e)=>{handleClickRow(e, row,n)}} class={asStringArray(classNameRow)}>
-                {#each columns as col}
-                    <td
-                            on:click={(e)=>{handleClickCell(e, row, col.key)}}
-                            class={asStringArray([col.class, classNameCell])}
-                    >{@html col.renderValue ? col.renderValue(row) : col.value(row)}</td>
-                {/each}
-            </tr>
-        </slot>
-    {/each}
-    </tbody>
-</table>
