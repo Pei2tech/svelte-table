@@ -1,12 +1,10 @@
 # svelte-table
 
+These source code is modified from  [svelte-table](https://github.com/dasDaniel/svelte-table). There are two source codes (SvelteList, SvelteTable) created. 
+
+
 A _relatively_ minimal svelte table example. Allows sorting and filtering based on column values.
 
-## Install
-
-```sh
-npm install -save svelte-table
-```
 
 # Usage
 
